@@ -1,0 +1,18 @@
+{
+    "model_path": "mobilenet_v2_140_224",
+    "threshold": 0.7,
+    "classes": [
+        "drawings",
+        "hentai",
+        "neutral",
+        "porn",
+        "sexy"
+    ],
+    "output_mapping": {
+        "drawings": "safe",
+        "neutral": "safe",
+        "sexy": "sexy",
+        "porn": "porn",
+        "hentai": "hentai"
+    }
+}
