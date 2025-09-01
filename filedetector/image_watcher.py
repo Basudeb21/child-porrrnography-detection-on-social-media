@@ -5,112 +5,159 @@ from pathlib import Path
 from datetime import datetime
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-import shutil
+import requests
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-# Import from db folder
-from db.dbConfig import get_connection
-from db.nsfw_detector import NSFWDetector
 
-BASE_URL = "http://localhost:8000/images"
+# Import NSFW detector
+from db.nsfw_detector import NSFWDetector  # adjust if needed
+
+BASE_URL = "http://localhost:8000/images"  # Publicly served URL for images
 IMAGES_DIR = str(Path(__file__).parent.parent / "storage" / "filter" / "minor" / "nonfilter")
 MODEL_PATH = str(Path(__file__).parent.parent / "mobilenet_v2_140_224")
-THRESHOLD = 0.8 
+THRESHOLD = 0.8
+
+MODERATION_API_BASE = "http://127.0.0.1:8000"
+MODERATION_ENDPOINT = f"{MODERATION_API_BASE}/moderation/"
+
+# Defaults
+DEFAULT_TABLE_NAME = "posts"
+DEFAULT_POST_TYPE = "img"
+DEFAULT_STATUS = "reported"
+DEFAULT_USER_ID = 0
+
+# Report rule
+REPORT_PERCENT = 30.0
+
+
+def send_to_moderation_api(file_url: str,
+                           post_type: str = DEFAULT_POST_TYPE,
+                           table_name: str = DEFAULT_TABLE_NAME,
+                           reason: str = "",
+                           user_id: int = DEFAULT_USER_ID,
+                           status: str = DEFAULT_STATUS,
+                           retries: int = 3,
+                           timeout: int = 6):
+    payload = {
+        "url": file_url,
+        "post_type": post_type,
+        "table_name": table_name,
+        "reason": reason,
+        "user_id": user_id,
+        "status": status
+    }
+
+    last_err = None
+    for _ in range(retries):
+        try:
+            r = requests.post(MODERATION_ENDPOINT, json=payload, timeout=timeout)
+            if r.status_code in (200, 201):
+                print(f"[API] Moderation recorded: {r.json()}")
+                return True
+            else:
+                print(f"[API] Failed ({r.status_code}): {r.text}")
+                last_err = r.text
+        except Exception as e:
+            print(f"[API] Error: {e}")
+            last_err = str(e)
+        time.sleep(0.8)
+
+    print(f"[API] Giving up after retries. Last error: {last_err}")
+    return False
+
 
 class ImageHandler(FileSystemEventHandler):
     def __init__(self):
         self.detector = NSFWDetector(MODEL_PATH)
-    
-    def on_created(self, event):
-        if not event.is_directory and event.src_path.lower().endswith((".png", ".jpg", ".jpeg")):
-            print(f"\nFile Detected: {event.src_path}")
-            self.process_image(event.src_path)
 
-    def process_image(self, image_path):
+    def on_created(self, event):
+        if event.is_directory:
+            return
+        low = event.src_path.lower()
+        if not (low.endswith(".png") or low.endswith(".jpg") or low.endswith(".jpeg")):
+            return
+
+        print(f"\nFile Detected: {event.src_path}")
+        self.process_image(event.src_path)
+
+    def process_image(self, image_path: str):
         print(f"Processing new image: {os.path.basename(image_path)}")
-        
+
         try:
+            # Run NSFW detector
             result = self.detector.predict(image_path, THRESHOLD)
-            
+
             if result.get('error'):
                 print(f"Detection error: {result['error']}")
                 return
 
+            scores = result.get("scores", {})
+            sexy_pct = float(scores.get("sexy", 0.0))
+            porn_pct = float(scores.get("porn", 0.0))
+            hentai_pct = float(scores.get("hentai", 0.0))
+            is_nsfw = bool(result.get("is_nsfw", False))
+
             print("\nDetection Results:")
-            for label, score in result["scores"].items():
-                print(f"{label.upper()+':':<8} {score:.2f}%")
-            print(f"NSFW: {'YES' if result['is_nsfw'] else 'NO'}")
+            for label, score in sorted(scores.items(), key=lambda x: x[1], reverse=True):
+                print(f"{label.upper()+':':<10} {score:.2f}%")
+            print(f"NSFW: {'YES' if is_nsfw else 'NO'}")
 
-            self.save_to_db(image_path, result)
+            should_report = (porn_pct >= REPORT_PERCENT) or (sexy_pct >= REPORT_PERCENT)
 
-            scores = result["scores"]
-            top_label = max(scores, key=scores.get)
+            file_url = f"{BASE_URL}/{os.path.basename(image_path)}"
 
-            base_minor_path = Path(__file__).parent.parent / "storage" / "filter" / "minor" / "filter"
+            if should_report:
+                if sexy_pct > porn_pct:
+                    extra_reason = "Post contains nude image of kids."
+                elif porn_pct > sexy_pct:
+                    extra_reason = "Post contains pornographic contents of kids."
+                else:
+                    extra_reason = "Post flagged for unsafe minor content."
 
-            if top_label == "natural":
-                dest_dir = base_minor_path / "minornonnsfw"
-            elif top_label == "porn":
-                dest_dir = base_minor_path / "minornsfw" / "porn"
-            elif top_label == "sexy":
-                dest_dir = base_minor_path / "minornsfw" / "sexy"
-            else:
-                dest_dir = None
+                reason = (
+                    f"Minor detected with NSFW indicators. "
+                    f"{extra_reason}"
+                )
 
-            if dest_dir:
-                os.makedirs(dest_dir, exist_ok=True)
-                dest_path = dest_dir / os.path.basename(image_path)
-                shutil.move(image_path, dest_path)
-                print(f"Moved {os.path.basename(image_path)} to {dest_path}")
+                ok = send_to_moderation_api(
+                    file_url=file_url,
+                    post_type="img",
+                    table_name=DEFAULT_TABLE_NAME,
+                    reason=reason,
+                    user_id=DEFAULT_USER_ID,
+                    status="reported"
+                )
+                if ok:
+                    print("Report created in moderation service")
+                else:
+                    print("Failed to create moderation report")
 
         except Exception as e:
             print(f"Processing failed: {str(e)}")
-    def save_to_db(self, image_path, result):
-        try:
-            conn = get_connection()
-            if not conn:
-                print("Database connection failed")
-                return
 
-            cursor = conn.cursor()
-            
-            sql = """INSERT INTO moderation_posts 
-                     (file_url, file_type, nsfw_hentai, nsfw_porn, nsfw_sexy, flagged_by_ai, created_at) 
-                     VALUES (%s, %s, %s, %s, %s, %s, %s)"""
-            
-            values = (
-                f"{BASE_URL}/{os.path.basename(image_path)}",
-                'image',
-                float(result["scores"].get("hentai", 0)),
-                float(result["scores"].get("porn", 0)),
-                float(result["scores"].get("sexy", 0)),
-                1 if result["is_nsfw"] else 0,
-                datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            )
-            
-            cursor.execute(sql, values)
-            conn.commit()
-            print("Saved to database")
-            
-        except Exception as e:
-            print(f"Database error: {str(e)}")
         finally:
-            if conn:
-                conn.close()
+            try:
+                if os.path.exists(image_path):
+                    os.remove(image_path)
+                    print(f"Deleted image: {image_path}")
+            except Exception as e:
+                print(f"Failed to delete image {image_path}: {e}")
+
 
 if __name__ == "__main__":
     if not os.path.exists(IMAGES_DIR):
-        os.makedirs(IMAGES_DIR)
+        os.makedirs(IMAGES_DIR, exist_ok=True)
         print(f"Created images directory at {IMAGES_DIR}")
 
     if not os.path.exists(MODEL_PATH):
         print(f"Error: Model not found at {MODEL_PATH}")
-        exit(1)
+        sys.exit(1)
 
     # Start watcher
     print(f"\nStarting image watcher on: {IMAGES_DIR}")
     print(f"Using model: {MODEL_PATH}")
     print(f"NSFW Threshold: {THRESHOLD*100}%")
+    print(f"Report Rule: age<18 AND (porn≥{REPORT_PERCENT}% OR sexy≥{REPORT_PERCENT}%)")
     print("Press Ctrl+C to stop\n")
 
     event_handler = ImageHandler()

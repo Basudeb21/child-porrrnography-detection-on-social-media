@@ -51,7 +51,6 @@ def highlightFace(net, frame, conf_threshold=0.7):
             x2 = int(detections[0, 0, i, 5] * frameWidth)
             y2 = int(detections[0, 0, i, 6] * frameHeight)
             faceBoxes.append([x1, y1, x2, y2])
-
     return frameOpencvDnn, faceBoxes
 
 def move_based_on_age(image_path, age):
