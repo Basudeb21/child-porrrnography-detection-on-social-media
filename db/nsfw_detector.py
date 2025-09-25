@@ -1,3 +1,4 @@
+# nsfw_detector.py
 import tensorflow as tf
 import numpy as np
 import cv2
@@ -101,7 +102,6 @@ class NSFWDetector:
                 elif base_scores['sexy'] > base_scores['porn'] and features['skin_ratio'] > 0.5:
                     base_scores['porn'] *= 1.1
 
-            # Adjustment: reclassify mid skin exposure porn as sexy
             if base_scores['porn'] > 0.5 and features['skin_ratio'] < 0.4:
                 base_scores['sexy'] = max(base_scores['sexy'], base_scores['porn'])
                 base_scores['porn'] *= 0.5
