@@ -85,7 +85,6 @@ class ImageHandler(FileSystemEventHandler):
         print(f"Processing new image: {os.path.basename(image_path)}")
 
         try:
-            # Run NSFW detector
             result = self.detector.predict(image_path, THRESHOLD)
 
             if result.get('error'):
