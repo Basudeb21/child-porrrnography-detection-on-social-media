@@ -63,6 +63,7 @@ if __name__ == "__main__":
         os.path.join(base_dir, "storage", "uploads", "avatar"),
         os.path.join(base_dir, "storage", "uploads", "posts", "images"),
         os.path.join(base_dir, "storage", "uploads", "products", "gallery"),
+        os.path.join(base_dir, "storage", "filter", "minor", "nonfilter"),
     ]
 
     # Create all directories
