@@ -27,16 +27,16 @@ def insert_attachment(data: dict):
             minor_detected, nsfw_detected, flagged_by_ai, animal_detected,
             is_reported, report_status, report_create_date,
             admin_verified_status, moderator_notes, is_deleted,
-            created_at, updated_at
+            violance_detected, created_at, updated_at
         ) VALUES (
             %(id)s, %(filename)s, %(driver)s, %(type)s, %(user_id)s, %(post_id)s,
             %(story_id)s, %(message_id)s, %(collab_id)s, %(coconut_id)s,
             %(has_thumbnail)s, %(has_blurred_preview)s, %(payment_request_id)s,
-            %(is_personal_details_detected)s, %(blur_applied)s, %(minor_detected)s,
-            %(nsfw_detected)s, %(flagged_by_ai)s, %(animal_detected)s,
+            %(is_personal_details_detected)s, %(blur_applied)s,
+            %(minor_detected)s, %(nsfw_detected)s, %(flagged_by_ai)s, %(animal_detected)s,
             %(is_reported)s, %(report_status)s, %(report_create_date)s,
             %(admin_verified_status)s, %(moderator_notes)s, %(is_deleted)s,
-            %(created_at)s, %(updated_at)s
+            %(violance_detected)s, %(created_at)s, %(updated_at)s
         )
     """
 
